@@ -63,5 +63,5 @@ while(i < length(args))
     df <- rbind(df,newdf)
 }
 
-gg <- ggplot(df,aes(x=true_val,y=pred_val)) + geom_point(aes(colour=method),alpha=0.5) + facet_wrap(~phenotype,scales="free")
+gg <- ggplot(df,aes(x=true_val,y=pred_val)) + geom_point(aes(colour=method),size=0.4,alpha=0.5) + facet_wrap(~phenotype,scales="free")
 ggsave(file=outfile,gg,width=8,height=6,dpi=300)
