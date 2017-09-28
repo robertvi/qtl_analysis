@@ -9,7 +9,7 @@ args <- commandArgs(trailingOnly = TRUE)
 
 if(length(args) != 7)
 {
-    cat("usage: run_glmnet_cv_alpha_lambda.R <genotype_file> <phenotype_file> <phenotype> <nfold> <output_basename>\n\n")
+    cat("usage: run_glmnet_cv_alpha_lambda.R <genotype_file> <phenotype_file> <phenotype> <nfold> <reps> <alpha_inc> <output_basename>\n\n")
     cat("genotype_file csv column headings: marker,type,<sample1name>,<sample2name>\n")
     cat("phenotype_file csv column headings: sample,<phenotype1name>[,<phenotype2name>...]\n")
     cat("phenotype: which phenotype column to process (must match a column heading in the phenotype file)\n")
