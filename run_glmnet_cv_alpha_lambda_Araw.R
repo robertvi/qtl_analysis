@@ -3,16 +3,16 @@
 #
 # estimate SNP effects using elastic net
 # use cross validation to select lambda and alpha
+# load data from plink's "--recode A" .raw output format
+# all missing genotypes must have been imputed before running this script
 #
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if(length(args) != 7)
 {
-    cat("usage: run_glmnet_cv_alpha_lambda.R <genotype_file> <phenotype_file> <phenotype> <nfold> <reps> <alpha_inc> <output_basename>\n\n")
+    cat("usage: run_glmnet_cv_alpha_lambda_Araw.R <input_file> <nfold> <reps> <alpha_inc> <output_basename>\n\n")
     cat("genotype_file csv column headings: marker,type,<sample1name>,<sample2name>\n")
-    cat("phenotype_file csv column headings: sample,<phenotype1name>[,<phenotype2name>...]\n")
-    cat("phenotype: which phenotype column to process (must match a column heading in the phenotype file)\n")
     cat("nfold: nfold cross validation, eg 10 means split into ten parts, nine for fitting and one for testing\n")
     cat("reps: number of replicates of cross validation used to pick best lambda value\n")
     cat("alpha_inc: how to space alpha values apart, eg 0.1 -> 0.1,0.2,0.3...1.0\n")
@@ -20,34 +20,40 @@ if(length(args) != 7)
     quit()
 }
 
-genofile  <- args[1]
-phenofile <- args[2]
-pheno_col <- args[3]
-nfold     <- as.integer(args[4])
-reps      <- as.integer(args[5])
-alpha_inc <- as.double(args[6])
-outbase   <- args[7]
+inpfile   <- args[1]
+nfold     <- as.integer(args[2])
+reps      <- as.integer(args[3])
+alpha_inc <- as.double(args[4])
+outbase   <- args[5]
 
 library(glmnet)
 #source("~/git_repos/qtl_analysis/qtl_funcs.R")
-source("~/rjv_mnt/cluster/git_repos/qtl_analysis/qtl_funcs.R")
 
-#load genotypes from csv file
-## column headers required: marker,type,<sample1name>,<sample2name>...
-##marker=marker name string
-##type=any string
-##sample names are strings, must be unique and match exactly those in the phenotype file
-##then one marker per line, genotype codes as integers
-genotypes <- read.csv(genofile,header=T)
+#load from plink --recode A .raw file
+#columns must be: FID IID PAT MAT SEX PHENOTYPE marker1 marker2...
+data <- read.csv(inpfile,header=T,sep='')
 
-#load phenotypes
-##column headers required: sample,<phenotype1name>[,<phenotype2name>...]
-phenotypes <- read.csv(phenofile,header=T)
+n_markers <- ncol(data) - 6
+n_samples <- nrow(data)
 
-res <- matchup_and_extract(genotypes,phenotypes,pheno_col)
+cat("loaded markers:",n_markers," samples:",n_samples,"\n")
+
+#drop progeny with missing phenotypes
+data <- data[!is.na(data$PHENOTYPE),]
+
+cat(n_samples-nrow(data),"samples dropped due to missing phenotype\n")
+
+n_samples <- nrow(data)
+
+marker_names <- colnames(data)[7:ncol(data)]
+
+#extract just the genotypes as a numerical matrix
+mat_x <- data.matrix(data[,7:ncol(data)])
+
+#extract phenotype as a vector
+vec_y <- as.numeric(data$PHENOTYPE)
 
 #assign sample to cv folds in advance to allow the same folds to be used for different alphas
-n_samples <- length(res$vec_y)
 foldid <- NULL
 for(i in 1:reps)
 {
@@ -64,7 +70,7 @@ for(alpha in alpha_list)
     #multiple repeats to average out affects of different cross validation folds
     for(i in 1:reps)
     {
-        cvfit <- cv.glmnet(res$mat_x,res$vec_y,alpha=alpha,foldid=foldid[i,],family="gaussian")
+        cvfit <- cv.glmnet(mat_x,vec_y,alpha=alpha,foldid=foldid[i,],family="gaussian")
 
         #collect results into a single dataframe
         for(j in 1:length(cvfit$lambda))
