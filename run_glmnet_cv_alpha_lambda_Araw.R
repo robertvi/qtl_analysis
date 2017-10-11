@@ -5,11 +5,12 @@
 # use cross validation to select lambda and alpha
 # load data from plink's "--recode A" .raw output format
 # all missing genotypes must have been imputed before running this script
+# (see impute_missing_data.R)
 #
 
 args <- commandArgs(trailingOnly = TRUE)
 
-if(length(args) != 7)
+if(length(args) != 5)
 {
     cat("usage: run_glmnet_cv_alpha_lambda_Araw.R <input_file> <nfold> <reps> <alpha_inc> <output_basename>\n\n")
     cat("genotype_file csv column headings: marker,type,<sample1name>,<sample2name>\n")
@@ -123,7 +124,7 @@ best_alpha <- df2$alpha[i]
 best_lambda <- df2$lambda[i]
 
 #fit the model to all the data
-fit <- glmnet(res$mat_x,res$vec_y,lambda=best_lambda,alpha=best_alpha)
+fit <- glmnet(mat_x,vec_y,lambda=best_lambda,alpha=best_alpha)
 
 coeffs <- as.data.frame(as.matrix(coef(fit)))
 coeffs <- subset(coeffs,s0 != 0.0)
@@ -145,9 +146,9 @@ row.names(coeffs) <- NULL
 coeffs <- coeffs[c("marker","value")]
 
 #save all data to file
-routput = gsub(" ","_",paste0(outbase,"_",pheno_col,"_glmnet_cvalpha.Rdata"))
+routput = gsub(" ","_",paste0(outbase,"_glmnet_cvalpha.Rdata"))
 save.image(file=routput)
 
 #save just the estimated effects information to csv file
-csvoutput = gsub(" ","_",paste0(outbase,"_",pheno_col,"_glmnet_cvalpha.csv"))
+csvoutput = gsub(" ","_",paste0(outbase,"_glmnet_cvalpha.csv"))
 write.csv(coeffs,file=csvoutput,quote=F,row.names=F)

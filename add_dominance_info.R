@@ -1,14 +1,15 @@
 #!/usr/bin/Rscript
 
 #
-# impute all missing data using k nearest neighbour
+# add a second numerical encoding for each marker set to 1 if the genotype is a het
+# otherwise zero
 #
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if(length(args) != 2)
 {
-    cat("usage: impute_missing_data.R <input_file> <output_file>\n\n")
+    cat("usage: add_dominance_info.R <input_file> <output_file>\n\n")
     cat("input_file/output_file: plink --recode A type .raw file, space separated columns\n")
     cat("headings: FID IID PAT MAT SEX PHENOTYPE <marker1> [<marker2>...]\n")
     quit()
@@ -16,8 +17,6 @@ if(length(args) != 2)
 
 inpfile   <- args[1]
 outfile   <- args[2]
-
-library(DMwR)
 
 #load from plink --recode A .raw file
 #columns must be: FID IID PAT MAT SEX PHENOTYPE marker1 marker2...
@@ -28,15 +27,15 @@ n_samples <- nrow(data)
 
 cat("loaded markers:",n_markers," samples:",n_samples,"\n")
 
-#extract just the genotypes as a numerical matrix
-mat_x <- data.matrix(data[,7:ncol(data)])
+marker_names <- colnames(data)[7:ncol(data)]
 
-#impute missing genotype values
-df <- as.data.frame(t(mat_x))
-df_imp <- knnImputation(df,k=1)
+for ( name in marker_names )
+{
+    new_name <- paste0(unlist(strsplit(name,"_"))[1],"_het")
+    data[new_name] <- 0
+    wh <- data[name]==1
+    data[wh,new_name] <- 1
+}
 
-#reinsert into original dataframe
-data[,7:ncol(data)] <- t(df_imp)
-
-#save imputed version of the data
+#save imputed data
 write.table(data,file=outfile,quote=F,row.names=F,sep=' ')

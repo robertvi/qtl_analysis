@@ -11,98 +11,62 @@
 set -eu
 
 export PATH=~/rjv_mnt/cluster/git_repos/qtl_analysis:${PATH}
-export PATH=~/programs/plink-1.90beta:${PATH}
+export PATH=~/rjv_mnt/cluster/git_repos/axiom_strawberry/mysql_sample_database:${PATH}
+export PATH=~/git_repos/axiom_strawberry/mysql_sample_database:${PATH}
+export PATH=~/git_repos/axiom_strawberry/qtl_analysis:${PATH}
+export PATH=~/rjv_mnt/cluster/programs/plink-1.90beta:${PATH}
+export SCRIPT_PATH=~/git_repos/qtl_analysis
 
 NAME=clean-GWA-data_relaxed
 
-#see https://www.cog-genomics.org/plink/1.9/data#recode
-#recode to vcf -problem: we loose the phenotype values!
-#plink --bfile ${NAME} --recode vcf | vcf-fid|vcf-iid --out ${NAME}_
-#plink --bfile ${NAME} --recode vcf-iid --out ${NAME}
-#recode to ped
-#plink --bfile ${NAME} --recode ped --out ${NAME}
-#recode to A (Additive)
-#plink --bfile ${NAME} --recode A --out ${NAME}_A
-#recode to AD (additive plus dominant)
-#plink --bfile ${NAME} --recode AD --out ${NAME}_AD
-
-
-#recode to A
+#recode to A (additive numerical encoding)
 #alleles recoded to numerical (additive, one line per marker)
-#plink --bfile ${NAME} --recode A --out ${NAME}
+plink --bfile ${NAME} --recode A --out ${NAME}_A
 
 #impute missing data using knn
-impute_missing_data.R ${NAME}.raw ${NAME}_imputed.raw
+impute_missing_data.R ${NAME}_A.raw ${NAME}_Aimputed.raw
+
+#add dominance info to imputed values (plink cannot reload the .raw file to add them itself)
+add_dominance_info.R ${NAME}_Aimputed.raw ${NAME}_ADimputed.raw
 
 #fit elasticnet, select alpha and lambda using cross validation
-#run_glmnet_cv_alpha_lambda_Araw.R ${NAME}_imputed.raw 10 10 0.1 ${NAME}_glmnet
+run_glmnet_cv_alpha_lambda_Araw.R   ${NAME}_Aimputed.raw  10  10  0.1  ${NAME}_Aimputed
+run_glmnet_cv_alpha_lambda_Araw.R   ${NAME}_ADimputed.raw  10  10  0.1  ${NAME}_ADimputed
 
+#predict values for the training set only
+predict_phenotypes_Araw.R   ${NAME}_ADimputed.raw  ${NAME}_ADimputed_glmnet_cvalpha.csv  ${NAME}_ADimputed_glmnet_pred.csv
 
-if false ; then ########################################################
+#insert list of all samples we want to include into tmp_sample_list
+insert_sample_ids.py 
 
-#convert from affycodes to numerical codes
-convert_allele_codes.sh all_genotypes_affycodes.csv > all_genotypes_numerical.csv
+#dump all genotype data for samples requiring predictions
+mysql -B -h mongo -u vicker -p$(cat /home/vicker/passwords/mysql_mongo_vicker) -D strawberry_samples  <<XXX | gzip > selections.tsv.gz
+select
+    m.name,a.marker_id,g.sample_id,g.genotype,g.pipeline_id,m.ref,m.alt
+from
+    genotype g
+        join alias a on g.alias_id=a.id
+        join marker m on a.marker_id=m.id
+where
+    g.sample_id in (select l.sample_id from tmp_sample_list l)
+    and
+    m.id not in (select t.marker_id from marker_tag t where t.tag='multiform');
+XXX
 
-#single marker kruskal wallis tests
-calc_kruskalwallis.R ./uniq_genotypes_numerical.csv ./phenotypes.csv score uniq_kw.csv &
+#selections only
+#g.sample_id in (2194,2013,2061,2163,1943,1991,2087,2218,2185,1949,2047,2049,1907,2230,2053,2206,2208,1931,2027,2123,2171)
 
-#using either unique or unique split genotypes, use crossvalidation to find best elasticnet lambda and alpha
-run_glmnet_cv_alpha_lambda.R ./uniq_genotypes_numerical.csv ./phenotypes.csv score 10 10 0.1 uniq_glmnetcvalpha &
+#convert dump into LGEN file
+dump2lgen3.py   selections.tsv.gz   selections_lgen
 
+#convert into plink's recodeA raw format
+plink --lfile selections_lgen   --recode A   --out selections_raw
 
-run_stepwise_AIC.R uniq_genotypes_numerical.csv       phenotypes.csv score uniq_kw.csv      0.004 uniq_aic
+#impute missing data using knn
+impute_missing_data.R selections_raw.raw selections_imputed.raw
 
-predict_phenotypes.R uniq_genotypes_numerical.csv       uniq_aic_score_AICstep.csv      uniq_aic_preds.csv
+#add dominance info to imputed values (plink cannot reload the .raw file to add them itself)
+add_dominance_info.R selections_imputed.raw selections_ADimputed.raw
 
-predict_phenotypes.R uniq_genotypes_numerical.csv       uniq_glmnetcvalpha_score_glmnet_cvalpha.csv      uniq_cvalpha_preds.csv
-
-
-plot_predictions.R phenotypes.csv predictions.png \
-    uniq_cvalpha_preds.csv               score cvalpha \
-    uniqsplit_cvalpha_preds.csv          score cvalpha_split \
-    uniq_ebglmnetlasso_preds.csv         score eblasso \
-    uniqsplit_ebglmnetlasso_preds.csv    score eblasso_split \
-    uniq_ebglmnetlassoNEG_preds.csv      score eblassoNEG \
-    uniqsplit_ebglmnetlassoNEG_preds.csv score eblassoNEG_split \
-    uniq_ebglmnetelastic_net_preds.csv      score ebelastic \
-    uniqsplit_ebglmnetelastic_net_preds.csv score ebelastic_split \
-    uniq_aic_preds.csv                   score aic \
-    uniqsplit_aic_preds.csv              score aic_split
-
-plot_predictions.R phenotypes.csv predictions_ebelastic.png \
-    uniq_ebglmnetelastic_net_preds.csv      score ebelastic \
-    uniqsplit_ebglmnetelastic_net_preds.csv score ebelastic_split
-
-plot_predictions.R phenotypes.csv predictions_eblassoNEG.png \
-    uniq_ebglmnetlassoNEG_preds.csv      score eblassoNEG \
-    uniqsplit_ebglmnetlassoNEG_preds.csv score eblassoNEG_split
-
-plot_predictions.R phenotypes.csv predictions_eblasso.png \
-    uniq_ebglmnetlasso_preds.csv         score eblasso \
-    uniqsplit_ebglmnetlasso_preds.csv    score eblasso_split
-
-plot_predictions.R phenotypes.csv predictions_aic.png \
-    uniq_aic_preds.csv                   score aic \
-    uniqsplit_aic_preds.csv              score aic_split
-
-plot_predictions.R phenotypes.csv predictions_cvalpha.png \
-    uniq_cvalpha_preds.csv               score cvalpha \
-    uniqsplit_cvalpha_preds.csv          score cvalpha_split
-
-plot_predictions.R phenotypes.csv predictions_cvalpha_aic.png \
-    uniq_aic_preds.csv                   score aic \
-    uniqsplit_aic_preds.csv              score aic_split \
-    uniq_cvalpha_preds.csv               score cvalpha \
-    uniqsplit_cvalpha_preds.csv          score cvalpha_split
-
-plot_qtl_vs_mapposn.R \
-    vescax4_emxfeonly.csv \
-    glmnet_aic_kw.png \
-    uniq_kw.csv                                      marker pvalue KW           pvalue \
-    uniqsplit_kw.csv                                 marker pvalue KWsplit      pvalue_split \
-    uniq_glmnetcvalpha_score_glmnet_cvalpha.csv      marker value  glmnet       effect \
-    uniqsplit_glmnetcvalpha_score_glmnet_cvalpha.csv marker value  glmnetsplit  effect_split \
-    uniq_aic_score_AICstep.csv                       marker value  AIC          effect \
-    uniqsplit_aic_score_AICstep.csv                  marker value  AICsplit     effect_split
-
-fi #####################################################################
+#predict values for the selections
+predict_phenotypes_Araw.R   selections_ADimputed.raw  ${NAME}_ADimputed_glmnet_cvalpha.csv  selections_ADimputed_glmnet_pred.csv
